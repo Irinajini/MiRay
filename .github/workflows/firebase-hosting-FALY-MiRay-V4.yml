@@ -1,101 +1,28 @@
-name: Build & Deploy FALY MiRay
-
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-jobs:
-  build_and_deploy:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: List files before extraction
-        shell: bash
-        run: |
-          echo "📂 Contenu du dépôt avant extraction :"
-          ls -la
-
       - name: Extract ZIP file if present
-        shell: bash
         run: |
-          # Trouver un fichier ZIP dans le dépôt
-          ZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
-          
-          if [ -n "$ZIP_FILE" ]; then
-            echo "📦 Fichier ZIP trouvé : $ZIP_FILE"
+          # Vérifier si le fichier ZIP existe
+          if [ -f "./FALY_MiRay_V6_CLIENT_ADMIN_FUNCTIONAL.zip" ]; then
+            echo "✅ Fichier ZIP trouvé : ./FALY_MiRay_V6_CLIENT_ADMIN_FUNCTIONAL.zip"
             
-            # Installer unzip si nécessaire
-            sudo apt-get update && sudo apt-get install -y unzip
-            
-            # Créer un dossier temporaire
-            mkdir -p temp_extract
-            
-            # Décompresser le ZIP
-            unzip -o "$ZIP_FILE" -d temp_extract/
-            
-            # Copier le contenu vers la racine (sans écraser les fichiers du workflow)
-            echo "📂 Copie des fichiers vers la racine..."
-            cp -r temp_extract/* . || true
-            
-            # Nettoyer
-            rm -rf temp_extract
-            
-            echo "✅ Extraction terminée."
+            # 1. Vérifier l'intégrité du fichier ZIP avant d'essayer de l'extraire
+            echo "🔍 Vérification de l'intégrité du fichier ZIP..."
+            if unzip -t "./FALY_MiRay_V6_CLIENT_ADMIN_FUNCTIONAL.zip" > /dev/null 2>&1; then
+              
+              # 2. Le fichier est valide, on extrait
+              echo "✅ Le ZIP est valide. Début de l'extraction..."
+              unzip -o "./FALY_MiRay_V6_CLIENT_ADMIN_FUNCTIONAL.zip" -d ./deploy_folder
+              
+              # 3. Afficher ce qui a été extrait (optionnel, pour le débogage)
+              echo "📂 Contenu extrait :"
+              ls -la ./deploy_folder
+              
+            else
+              # Le fichier est invalide (Erreur : End-of-central-directory signature not found)
+              echo "❌ ERREUR FATALE : Le fichier ZIP est corrompu ou tronqué."
+              echo "   Cause probable : Téléchargement incomplet ou problème de commit Git."
+              echo "   Solution recommandée : Supprimez le .zip du dépôt et committez les fichiers décompressés directement."
+              exit 1
+            fi
           else
-            echo "ℹ️ Aucun fichier ZIP trouvé."
+            echo "⚠️ Aucun fichier ZIP trouvé. Aucune extraction effectuée."
           fi
-
-      - name: Verify project files
-        shell: bash
-        run: |
-          echo "📂 Contenu après extraction :"
-          ls -la
-          
-          test -f package.json || (echo "::error::package.json est absent de la racine du dépôt." && exit 1)
-          test -f firebase.json || (echo "::error::firebase.json est absent de la racine du dépôt." && exit 1)
-          test -f src/main.jsx || (echo "::error::src/main.jsx est absent." && exit 1)
-          
-          echo "✅ Tous les fichiers nécessaires sont présents."
-
-      - name: Install dependencies
-        run: npm install --no-audit --no-fund
-
-      - name: Build Vite application
-        run: npm run build
-
-      - name: Verify build output
-        shell: bash
-        run: |
-          test -f dist/index.html || (echo "::error::Le build n'a pas créé dist/index.html." && exit 1)
-
-      - name: Check Firebase service account secret
-        shell: bash
-        env:
-          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FALY_MIRAY }}
-        run: |
-          if [ -z "$FIREBASE_SA" ]; then
-            echo "::error::Le secret GitHub FIREBASE_SERVICE_ACCOUNT_FALY_MIRAY n'est pas configuré."
-            echo "Ajoutez-le dans GitHub > Settings > Secrets and variables > Actions."
-            exit 1
-          fi
-
-      - name: Deploy to Firebase Hosting
-        uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: "${{ secrets.GITHUB_TOKEN }}"
-          firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT_FALY_MIRAY }}"
-          projectId: "faly-miray"
-          channelId: "live"
