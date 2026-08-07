@@ -1,0 +1,10 @@
+UPLOAD GITHUB — CHECKLIST
+
+1. Décompresser le ZIP.
+2. Uploader LE CONTENU directement à la racine du dépôt.
+3. Vérifier que package.json est visible immédiatement sur la page du dépôt.
+4. Ajouter le secret FIREBASE_SERVICE_ACCOUNT_FALY_MIRAY.
+5. Commit sur main.
+6. Ouvrir Actions > Build & Deploy FALY MiRay.
+
+Ne pas remettre tout le projet dans un sous-dossier.

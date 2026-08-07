@@ -1,0 +1,55 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isAdmin() { return signedIn() && request.auth.token.admin == true; }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow create, update: if isOwner(uid);
+      allow delete: if isAdmin();
+    }
+
+    match /pages/{pageId} {
+      allow read: if resource.data.status == 'published' || isAdmin() || (signedIn() && resource.data.ownerId == request.auth.uid);
+      allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if isAdmin() || (signedIn() && resource.data.ownerId == request.auth.uid);
+    }
+
+    match /products/{productId} {
+      allow read: if resource.data.status == 'published' || isAdmin();
+      allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if isAdmin() || (signedIn() && resource.data.ownerId == request.auth.uid);
+    }
+
+    match /events/{eventId} {
+      allow read: if true;
+      allow create: if signedIn();
+      allow update, delete: if isAdmin() || (signedIn() && resource.data.ownerId == request.auth.uid);
+    }
+
+    match /opportunities/{id} {
+      allow read: if true;
+      allow create: if signedIn();
+      allow update, delete: if isAdmin() || (signedIn() && resource.data.ownerId == request.auth.uid);
+    }
+
+    match /conversations/{conversationId} {
+      allow read, write: if signedIn() && request.auth.uid in resource.data.memberIds;
+      allow create: if signedIn() && request.auth.uid in request.resource.data.memberIds;
+      match /messages/{messageId} {
+        allow read, write: if signedIn();
+      }
+    }
+
+    match /reports/{reportId} {
+      allow create: if signedIn();
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+  }
+}
