@@ -1,28 +1,33 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # --- INSÉREZ LE NOUVEAU BLOC ICI ---
       - name: Extract ZIP file if present
         run: |
-          # Vérifier si le fichier ZIP existe
           if [ -f "./FALY_MiRay_V6_CLIENT_ADMIN_FUNCTIONAL.zip" ]; then
             echo "✅ Fichier ZIP trouvé : ./FALY_MiRay_V6_CLIENT_ADMIN_FUNCTIONAL.zip"
-            
-            # 1. Vérifier l'intégrité du fichier ZIP avant d'essayer de l'extraire
-            echo "🔍 Vérification de l'intégrité du fichier ZIP..."
             if unzip -t "./FALY_MiRay_V6_CLIENT_ADMIN_FUNCTIONAL.zip" > /dev/null 2>&1; then
-              
-              # 2. Le fichier est valide, on extrait
-              echo "✅ Le ZIP est valide. Début de l'extraction..."
               unzip -o "./FALY_MiRay_V6_CLIENT_ADMIN_FUNCTIONAL.zip" -d ./deploy_folder
-              
-              # 3. Afficher ce qui a été extrait (optionnel, pour le débogage)
-              echo "📂 Contenu extrait :"
-              ls -la ./deploy_folder
-              
+              echo "📂 Extraction réussie."
             else
-              # Le fichier est invalide (Erreur : End-of-central-directory signature not found)
-              echo "❌ ERREUR FATALE : Le fichier ZIP est corrompu ou tronqué."
-              echo "   Cause probable : Téléchargement incomplet ou problème de commit Git."
-              echo "   Solution recommandée : Supprimez le .zip du dépôt et committez les fichiers décompressés directement."
+              echo "❌ ERREUR : Le fichier ZIP est corrompu."
               exit 1
             fi
-          else
-            echo "⚠️ Aucun fichier ZIP trouvé. Aucune extraction effectuée."
           fi
+      # -----------------------------------
+      
+      # Le reste de vos étapes de déploiement...
