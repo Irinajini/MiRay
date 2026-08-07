@@ -1,17 +1,24 @@
-name: Build and Deploy
+name: Build and Deploy FALY MiRay
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -21,40 +28,52 @@ jobs:
       - name: Install unzip
         run: sudo apt-get update && sudo apt-get install -y unzip
 
-      - name: Locate and extract ZIP
+      - name: Find and extract ZIP
+        id: extract
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
-          echo "Recherche des ZIP..."
-          ZIP=$(find . -type f -iname "*.zip" | head -n 1)
+          ZIP="$(find . -maxdepth 2 -type f -iname '*.zip' | head -n 1)"
 
           if [ -z "$ZIP" ]; then
-            echo "::error::Aucun ZIP trouvé."
+            echo "::error::Aucun fichier ZIP trouvé."
+            exit 1
+          fi
+
+          if [ ! -s "$ZIP" ]; then
+            echo "::error::Le ZIP trouvé fait 0 octet : $ZIP"
             exit 1
           fi
 
           echo "ZIP trouvé : $ZIP"
+          unzip -t "$ZIP"
 
-          mkdir extracted
-          unzip -o "$ZIP" -d extracted
+          BUILD_DIR="$RUNNER_TEMP/faly-miray-build"
+          rm -rf "$BUILD_DIR"
+          mkdir -p "$BUILD_DIR"
+          unzip -q -o "$ZIP" -d "$BUILD_DIR"
 
-          PROJECT=$(find extracted -name package.json | head -n 1)
+          PACKAGE_FILE="$(find "$BUILD_DIR" -maxdepth 4 -type f -name package.json | head -n 1)"
 
-          if [ -z "$PROJECT" ]; then
-            echo "::error::package.json introuvable."
+          if [ -z "$PACKAGE_FILE" ]; then
+            echo "::error::package.json introuvable après extraction."
             exit 1
           fi
 
-          PROJECT_DIR=$(dirname "$PROJECT")
-
-          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
-
+          PROJECT_DIR="$(dirname "$PACKAGE_FILE")"
           echo "Projet détecté : $PROJECT_DIR"
+
+          test -f "$PROJECT_DIR/firebase.json" || {
+            echo "::error::firebase.json introuvable."
+            exit 1
+          }
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Install dependencies
         working-directory: ${{ env.PROJECT_DIR }}
-        run: npm install
+        run: npm install --no-audit --no-fund
 
       - name: Build Vite application
         working-directory: ${{ env.PROJECT_DIR }}
@@ -63,22 +82,50 @@ jobs:
       - name: Verify build output
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          test -d dist || (echo "::error::Le dossier dist est introuvable." && exit 1)
+          test -f dist/index.html || {
+            echo "::error::dist/index.html introuvable."
+            exit 1
+          }
+
+      - name: Prepare Firebase credentials
+        shell: bash
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FALY_MIRAY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$FIREBASE_SA" ]; then
+            echo "::error::Le secret FIREBASE_SERVICE_ACCOUNT_FALY_MIRAY est absent."
+            exit 1
+          fi
+
+          SA_FILE="$RUNNER_TEMP/firebase-service-account.json"
+          printf '%s' "$FIREBASE_SA" > "$SA_FILE"
+
+          python - <<'PY'
+          import json, os
+          p = os.environ["RUNNER_TEMP"] + "/firebase-service-account.json"
+          with open(p, "r", encoding="utf-8") as f:
+              data = json.load(f)
+          assert data.get("type") == "service_account"
+          assert data.get("project_id") == "faly-miray"
+          print("Compte de service Firebase valide :", data.get("client_email"))
+          PY
+
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$SA_FILE" >> "$GITHUB_ENV"
 
       - name: Deploy Firestore rules and indexes
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          npx firebase-tools deploy \
-            --only firestore \
-            --project faly-miray
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/firebase-service-account.json
+          npx firebase-tools@latest deploy \
+            --only firestore:rules,firestore:indexes \
+            --project faly-miray \
+            --non-interactive
 
       - name: Deploy Firebase Hosting
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          npx firebase-tools deploy \
+          npx firebase-tools@latest deploy \
             --only hosting \
-            --project faly-miray
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/firebase-service-account.json
+            --project faly-miray \
+            --non-interactive
