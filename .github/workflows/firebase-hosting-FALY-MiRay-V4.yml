@@ -22,59 +22,64 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Find FALY MiRay project folder
-        id: project
+      - name: List files before extraction
         shell: bash
         run: |
-          set -e
+          echo "📂 Contenu du dépôt avant extraction :"
+          ls -la
 
-          if [ -f "package.json" ]; then
-            PROJECT_DIR="."
+      - name: Extract ZIP file if present
+        shell: bash
+        run: |
+          # Trouver un fichier ZIP dans le dépôt
+          ZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
+          
+          if [ -n "$ZIP_FILE" ]; then
+            echo "📦 Fichier ZIP trouvé : $ZIP_FILE"
+            
+            # Installer unzip si nécessaire
+            sudo apt-get update && sudo apt-get install -y unzip
+            
+            # Créer un dossier temporaire
+            mkdir -p temp_extract
+            
+            # Décompresser le ZIP
+            unzip -o "$ZIP_FILE" -d temp_extract/
+            
+            # Copier le contenu vers la racine (sans écraser les fichiers du workflow)
+            echo "📂 Copie des fichiers vers la racine..."
+            cp -r temp_extract/* . || true
+            
+            # Nettoyer
+            rm -rf temp_extract
+            
+            echo "✅ Extraction terminée."
           else
-            PACKAGE_FILE="$(find . -maxdepth 4 -type f -name package.json \
-              ! -path '*/node_modules/*' \
-              ! -path '*/.git/*' \
-              | head -n 1)"
-
-            if [ -z "$PACKAGE_FILE" ]; then
-              echo "::error::Aucun package.json trouvé dans le dépôt (profondeur max 4)."
-              echo "Contenu de la racine :"
-              ls -la
-              exit 1
-            fi
-
-            PROJECT_DIR="$(dirname "$PACKAGE_FILE")"
+            echo "ℹ️ Aucun fichier ZIP trouvé."
           fi
 
-          echo "Projet détecté dans : $PROJECT_DIR"
-          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-
-          test -f "$PROJECT_DIR/firebase.json" || {
-            echo "::error::firebase.json absent dans $PROJECT_DIR"
-            exit 1
-          }
-
-          test -f "$PROJECT_DIR/src/main.jsx" || {
-            echo "::error::src/main.jsx absent dans $PROJECT_DIR"
-            exit 1
-          }
+      - name: Verify project files
+        shell: bash
+        run: |
+          echo "📂 Contenu après extraction :"
+          ls -la
+          
+          test -f package.json || (echo "::error::package.json est absent de la racine du dépôt." && exit 1)
+          test -f firebase.json || (echo "::error::firebase.json est absent de la racine du dépôt." && exit 1)
+          test -f src/main.jsx || (echo "::error::src/main.jsx est absent." && exit 1)
+          
+          echo "✅ Tous les fichiers nécessaires sont présents."
 
       - name: Install dependencies
-        working-directory: ${{ steps.project.outputs.dir }}
         run: npm install --no-audit --no-fund
 
       - name: Build Vite application
-        working-directory: ${{ steps.project.outputs.dir }}
         run: npm run build
 
       - name: Verify build output
         shell: bash
         run: |
-          PROJECT_DIR="${{ steps.project.outputs.dir }}"
-          test -f "$PROJECT_DIR/dist/index.html" || {
-            echo "::error::Le build n'a pas créé $PROJECT_DIR/dist/index.html"
-            exit 1
-          }
+          test -f dist/index.html || (echo "::error::Le build n'a pas créé dist/index.html." && exit 1)
 
       - name: Check Firebase service account secret
         shell: bash
@@ -82,8 +87,8 @@ jobs:
           FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FALY_MIRAY }}
         run: |
           if [ -z "$FIREBASE_SA" ]; then
-            echo "::error::Secret FIREBASE_SERVICE_ACCOUNT_FALY_MIRAY manquant."
-            echo "GitHub > Settings > Secrets and variables > Actions > New repository secret"
+            echo "::error::Le secret GitHub FIREBASE_SERVICE_ACCOUNT_FALY_MIRAY n'est pas configuré."
+            echo "Ajoutez-le dans GitHub > Settings > Secrets and variables > Actions."
             exit 1
           fi
 
@@ -94,4 +99,3 @@ jobs:
           firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT_FALY_MIRAY }}"
           projectId: "faly-miray"
           channelId: "live"
-          entryPoint: "${{ steps.project.outputs.dir }}"
