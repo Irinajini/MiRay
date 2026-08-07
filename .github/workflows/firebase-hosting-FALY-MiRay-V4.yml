@@ -1,0 +1,60 @@
+name: Build & Deploy FALY MiRay
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Verify project files
+        shell: bash
+        run: |
+          test -f package.json || (echo "::error::package.json est absent de la racine du dépôt." && exit 1)
+          test -f firebase.json || (echo "::error::firebase.json est absent de la racine du dépôt." && exit 1)
+          test -f src/main.jsx || (echo "::error::src/main.jsx est absent." && exit 1)
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build Vite application
+        run: npm run build
+
+      - name: Verify build output
+        shell: bash
+        run: |
+          test -f dist/index.html || (echo "::error::Le build n'a pas créé dist/index.html." && exit 1)
+
+      - name: Check Firebase service account secret
+        shell: bash
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FALY_MIRAY }}
+        run: |
+          if [ -z "$FIREBASE_SA" ]; then
+            echo "::error::Le secret GitHub FIREBASE_SERVICE_ACCOUNT_FALY_MIRAY n'est pas configuré."
+            echo "Ajoutez-le dans GitHub > Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Deploy to Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: "${{ secrets.GITHUB_TOKEN }}"
+          firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT_FALY_MIRAY }}"
+          projectId: "faly-miray"
+          channelId: "live"
